@@ -25,6 +25,8 @@ const mensajesPredeterminados = {
     "Hola {nombre}, te ofrecemos un descuento especial en nuestros servicios. Tu saldo pendiente es de *${saldoPendiente}* y la fecha de corte es el *{fechaCorte}*.",
   aviso:
     "Hola {nombre}, este es un aviso importante sobre nuestros servicios. Tu saldo pendiente es de *${saldoPendiente}* y la fecha de corte es el *{fechaCorte}*.",
+  promocion:
+    "Hola {nombre}, te informamos sobre una promoción especial. Tu saldo pendiente es de *${saldoPendiente}* y la fecha de corte es el *{fechaCorte}*.",
 };
 
 // Función para reemplazar placeholders con valores reales
