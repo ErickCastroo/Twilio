@@ -1,62 +1,92 @@
-import express from 'express';
-import bodyParser from 'body-parser';
-import 'dotenv/config';
-import twilio from 'twilio';
-import cors from 'cors';
+import express from "express";
+import bodyParser from "body-parser";
+import "dotenv/config";
+import twilio from "twilio";
+import cors from "cors";
 
 const app = express();
 app.use(cors());
-const port = 3000;
+app.use(express.json());
 
-app.use(bodyParser.json());
-
-// Credenciales de Twilio
 const accountSid = process.env.ACCOUNT_SID;
-const authToken = process.env.ACCES_TOKEN;
-const client = new twilio(accountSid, authToken);
+const authToken = process.env.ACCESS_TOKEN;
+const twilioNumber = process.env.TWILIO_PHONE;
 
-// Ruta para enviar mensajes
-app.post('/sendmessage', async (req, res) => {
-  const { empleados } = req.body;
+if (!accountSid || !authToken || !twilioNumber) {
+  console.error("Error: Credenciales de Twilio no configuradas correctamente.");
+  process.exit(1);
+}
 
-  // Validación de los datos recibidos
-  if (!empleados || !Array.isArray(empleados) || empleados.length === 0) {
-    return res.status(400).json({ success: false, message: 'No se proporcionaron empleados válidos.' });
-  }
+const client = twilio(accountSid, authToken);
 
+// 📝 Mensajes predeterminados con placeholders
+const mensajesPredeterminados = {
+  descuento:
+    "Hola {nombre}, te ofrecemos un descuento especial en nuestros servicios. Tu saldo pendiente es de *${saldoPendiente}* y la fecha de corte es el *{fechaCorte}*.",
+  aviso:
+    "Hola {nombre}, este es un aviso importante sobre nuestros servicios. Tu saldo pendiente es de *${saldoPendiente}* y la fecha de corte es el *{fechaCorte}*.",
+};
+
+// Función para reemplazar placeholders con valores reales
+const generarMensaje = (plantilla, datos) => {
+  return plantilla
+    .replace("{nombre}", datos.nombre)
+    .replace("{saldoPendiente}", datos.saldoPendiente)
+    .replace("{fechaCorte}", datos.fechaCorte);
+};
+
+app.post("/sendmessage", async (req, res) => {
   try {
-    const resultados = await Promise.allSettled(
-      empleados.map(async (empleado) => {
-        try {
-          // Validación de campos requeridos
-          if (!empleado.nombre || !empleado.telefono || empleado.monto === undefined || empleado.sueldoDisponible === undefined) {
-            return { empleado: empleado.nombre, status: 'error', error: 'Datos incompletos' };
-          }
+    const { empleados, mensajePersonalizado, mensajeSeleccionado } = req.body;
 
-          const mensaje = `Hola ${empleado.nombre}, tu monto actual es $${empleado.monto} y tu sueldo disponible es $${empleado.sueldoDisponible}.`;
-          const response = await client.messages.create({
-            body: mensaje,
-            from: '+15512829877', // Número de Twilio
-            to: empleado.telefono,
-          });
+    if (!Array.isArray(empleados) || empleados.length === 0) {
+      return res.status(400).json({ error: "Lista de empleados inválida." });
+    }
 
-          console.log(`Mensaje enviado a ${empleado.telefono}:`, response.sid); // Log para depuración
-          return { empleado: empleado.nombre, status: 'enviado', sid: response.sid };
-        } catch (error) {
-          console.error(`Error al enviar mensaje a ${empleado.telefono}:`, error.message); // Log para depuración
-          return { empleado: empleado.nombre, status: 'error', error: error.message };
-        }
-      })
-    );
+    const mensajes = empleados.map(async (empleado) => {
+      // Determinar el mensaje a enviar
+      let mensaje =
+        mensajePersonalizado || mensajesPredeterminados[mensajeSeleccionado];
+      if (!mensaje) {
+        return {
+          empleado: empleado.nombre,
+          status: "fallido",
+          error: "Mensaje no disponible.",
+        };
+      }
 
-    res.status(200).json({ success: true, message: 'Mensajes procesados', detalles: resultados });
+      // Reemplazar los placeholders con los valores del empleado
+      const mensajeFinal = generarMensaje(mensaje, empleado);
+
+      try {
+        await client.messages.create({
+          body: mensajeFinal,
+          from: twilioNumber,
+          to: empleado.telefono,
+        });
+        return {
+          empleado: empleado.nombre,
+          status: "enviado",
+          mensaje: mensajeFinal, // Incluimos el mensaje enviado en la respuesta
+        };
+      } catch (error) {
+        console.error(`Error enviando mensaje a ${empleado.nombre}:`, error);
+        return {
+          empleado: empleado.nombre,
+          status: "fallido",
+          error: error.message,
+        };
+      }
+    });
+
+    const resultados = await Promise.allSettled(mensajes);
+    const detalles = resultados.map((resultado) => resultado.value);
+    res.json({ detalles });
   } catch (error) {
-    console.error('Error en la petición de Twilio:', error.message); // Log para depuración
-    res.status(500).json({ success: false, error: error.message });
+    console.error("Error en el servidor:", error);
+    res.status(500).json({ error: "Error interno del servidor." });
   }
 });
-
-// Iniciar servidor
-app.listen(port, () => {
-  console.log(`Servidor corriendo en http://localhost:${port}`);
+app.listen(3000, () => {
+  console.log("Servidor corriendo en http://localhost:3000");
 });
